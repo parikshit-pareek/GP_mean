@@ -1,0 +1,119 @@
+using AbstractGPs, MLJ
+using LinearAlgebra
+using Stheno
+using Plots
+using Random
+
+
+# Defining GPPP(GaussianProcessProbabilisticProgramme) object 
+# f = @gppp let
+#     f1 = s1 * stretch(GP(Matern52Kernel()), 1 / l1)
+#     f2 = s2 * stretch(GP(SEKernel()), 1 / l2)
+#     f3 = f1 + f2
+# end;
+
+
+
+function g(X)  
+    x = X[:,1]; z = X[:,2]; 
+    x.*z
+end
+
+
+ # Defining GPPP(GaussianProcessProbabilisticProgramme) object  with θ as hyperpramter vector
+function build_model(θ::NamedTuple)
+    return @gppp let
+        f1 = θ.s1 * stretch(GP(X->θ.s2*g(X),SEKernel()), 1 / θ.l1) # stretch here is used to push the length scale in ZeroMean GP
+#         f2 = θ.s2 * stretch(GP(Matern52Kernel()), 1 / θ.l2)
+#         f3 = f1 + f2
+    end
+end
+
+
+function g(X)  
+    x = X[:,1];
+    z = X[:,2];
+    a = 2
+           x.^a +2x  +z.^2
+end
+
+
+# ------------------------------- Sample Points --------------------------------------
+# Training Data 
+N_train = 60;
+N_test = 5000;
+λ  = 2;
+
+
+points = λ*randn(2,N_train)
+a = ColVecs(points)# Converting the matrix into a multi-column object 
+x = GPPPInput(:f1, vec(a))
+y = vec(g(points'))
+
+# Testing Data
+
+points_test = λ*randn(2,N_test);
+a_test = ColVecs(points_test)# Converting the matrix into a multi-column object 
+x_test = GPPPInput(:f1, vec(a_test));
+y_test = g(points_test');
+
+# ------------------------------------------------------------------------------------
+
+
+
+# σ²_n = 0.02;
+# fx = f(x, σ²_n);
+# const y = rand(fx);
+
+
+using ParameterHandling
+using ParameterHandling: value, flatten
+
+# Defining a NamedTuple 
+θ = (
+    # Short length-scale and small variance.
+    l1 = positive(0.3),
+    s1 = positive(0.2),
+     s2 = positive(1.0),
+
+    # Long length-scale and larger variance.
+#     l2 = positive(5.0),
+#     s2 = positive(1.0),
+
+    # Observation noise variance -- we'll be learning this as well. Constrained to be
+    # at least 1e-3.
+    s_noise = positive(0.1, exp, 1e-3),
+)
+θ_flat_init, unflatten = flatten(θ);# Making a vector out of the NamedTupel
+unpack = value ∘ unflatten;
+
+
+function nlml(θ::NamedTuple)
+    f = build_model(θ)
+    return -logpdf(f(x, θ.s_noise + 1e-6), y)
+end
+
+# using Zygote: gradient
+
+using Optim
+results = Optim.optimize(
+    nlml ∘ unpack,
+    θ_flat_init + randn(length(θ_flat_init)),
+#     LBFGS(),
+    NelderMead(),
+)
+θ_opt = unpack(results.minimizer)
+
+# θ_opt.s_noise
+
+# ----------------------------------------------------------------------------------------------------
+# We can now use this to construct the posterior GP and look at the posterior in comparison to the true 
+#  posterior with the known hyperparameters
+f_opt = build_model(θ_opt);  # GPPP model with optimal values of θ- hyperparameters
+f_posterior_opt = posterior(f_opt(x, θ_opt.s_noise), y)
+ms_opt = marginals(f_posterior_opt(x_test))
+μ = mean.(ms_opt); # Mean
+σ = std.(ms_opt);  # Variance
+println("# RMS: ",rms(μ,y_test) )     # RMS Error 
+println("# Hyper-parameters: ", θ_opt)
+
