@@ -13,8 +13,8 @@ using Random
 # end;
 
 
-
-function g(X)  
+# ----- Mean function ----------
+function m(X)  
     x = X[:,1]; z = X[:,2]; 
     x.*z
 end
@@ -23,7 +23,7 @@ end
  # Defining GPPP(GaussianProcessProbabilisticProgramme) object  with θ as hyperpramter vector
 function build_model(θ::NamedTuple)
     return @gppp let
-        f1 = θ.s1 * stretch(GP(X->θ.s2*g(X),SEKernel()), 1 / θ.l1) # stretch here is used to push the length scale in ZeroMean GP
+        f1 = θ.s1 * stretch(GP(X->θ.s2*m(X),SEKernel()), 1 / θ.l1) # stretch here is used to push the length scale in ZeroMean GP
 #         f2 = θ.s2 * stretch(GP(Matern52Kernel()), 1 / θ.l2)
 #         f3 = f1 + f2
     end
